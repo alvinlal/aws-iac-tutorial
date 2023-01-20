@@ -1,0 +1,49 @@
+Resources:
+  WebAppEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: ap-south-1a
+      ImageId: ami-0cca134ec43cf708f
+      InstanceType: t2.micro
+      KeyName: web-app
+      SecurityGroupIds:
+        - !Ref WebAppSecurityGroup
+      Tags:
+        - Value: web-app
+          Key: Name
+      BlockDeviceMappings:
+        - DeviceName: /dev/sdh
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp2
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          echo "<h1>Hello World from $(hostname -f)</h1>" > /var/www/html/index.html
+
+  WebAppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: web-app-sg
+      VpcId: vpc-dab079b1
+      GroupDescription: security group for WebAppEC2Instance
+      SecurityGroupIngress:
+        - Description: allow ssh
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - Description: allow http
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - Description: allow all traffic
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
