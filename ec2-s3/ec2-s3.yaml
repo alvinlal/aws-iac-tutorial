@@ -1,0 +1,58 @@
+Resources:
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: ap-south-1a
+      ImageId: ami-0cca134ec43cf708f
+      InstanceType: t2.micro
+      KeyName: ec2-s3
+      Tags:
+        - Value: ec2-s3
+          Key: Name
+      BlockDeviceMappings:
+        - DeviceName: /dev/sdh
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp2
+            DeleteOnTermination: true
+      IamInstanceProfile: !Ref EC2InstanceProfile
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: ec2-s3-demo-bucket-1
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: demo-ec2-instance-profile
+      Roles:
+        - !Ref EC2Role
+
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: demo-ec2-instance-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: demo-ec2-instance-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: arn:aws:s3:::ec2-s3-demo-bucket-1
