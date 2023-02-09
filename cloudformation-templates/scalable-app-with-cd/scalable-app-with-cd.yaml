@@ -1,0 +1,506 @@
+# Stuff to output
+# 1. created alb dns
+# 2. created instance profile role arn
+# 3. CNAME key and value created by acm for dns validation
+
+# Outputs
+Outputs:
+  ALBDNSName:
+    Value: !GetAtt TestALB.DNSName
+    Description: The DNS name of the created ALB.
+  GithubActionsRole:
+    Value: !GetAtt TestGithubActionsRole.Arn
+    Description: The ARN of the role created for github actions
+
+# Resources
+Resources:
+  TestIG: # test-ig
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: test-ig
+
+  TestVPC: # test-vpc
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: test-vpc
+
+  TestVPCtoTestIGAttachment: # attaches test-ig to test-vpc
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref TestVPC
+      InternetGatewayId: !Ref TestIG
+
+  TestSubnet1RouteTable: # test-subnet-1-rt
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TestVPC
+      Tags:
+        - Key: Name
+          Value: test-subnet-1-rt
+
+  TestSubnet1IGRoute:
+    Type: AWS::EC2::Route # test-subnet-1-rt route
+    Properties:
+      RouteTableId: !Ref TestSubnet1RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref TestIG
+
+  TestSubnet1:
+    Type: AWS::EC2::Subnet # test-subnet-1
+    Properties:
+      VpcId: !Ref TestVPC
+      AvailabilityZone: !Select [0, !GetAZs ]
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: test-subnet-1
+
+  TestSubnet1toTestSubnet1RT: # attaches test-subnet-1-rt to test-subnet-1
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestSubnet1RouteTable
+      SubnetId: !Ref TestSubnet1
+
+  TestSubnet2RouteTable: # test-subnet-2-rt
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TestVPC
+      Tags:
+        - Key: Name
+          Value: test-subnet-2-rt
+
+  TestSubnet2IGRoute:
+    Type: AWS::EC2::Route # test-subnet-2-rt route
+    Properties:
+      RouteTableId: !Ref TestSubnet2RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref TestIG
+
+  TestSubnet2:
+    Type: AWS::EC2::Subnet # test-subnet-2
+    Properties:
+      VpcId: !Ref TestVPC
+      AvailabilityZone: !Select [1, !GetAZs ]
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: test-subnet-2
+
+  TestSubnet2toTestSubnet2RT: # attaches test-subnet-2-rt to test-subnet-2
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestSubnet2RouteTable
+      SubnetId: !Ref TestSubnet2
+
+  TestSubnet3RouteTable: # test-subnet-3-rt
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TestVPC
+      Tags:
+        - Key: Name
+          Value: test-subnet-3-rt
+
+  TestSubnet3:
+    Type: AWS::EC2::Subnet # test-subnet-3
+    Properties:
+      VpcId: !Ref TestVPC
+      AvailabilityZone: !Select [0, !GetAZs ]
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: test-subnet-3
+
+  TestSubnet3toTestSubnet3RT: # attaches test-subnet-3-rt to test-subnet-3
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestSubnet3RouteTable
+      SubnetId: !Ref TestSubnet3
+
+  TestBucket:
+    Type: AWS::S3::Bucket # test-bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: test-bucket-88328
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+
+  TestBucketPolicy:
+    Type: AWS::S3::BucketPolicy # test bucket policy
+    Properties:
+      Bucket: !Ref TestBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AllowPublicAccessToVehicleImagesFolder
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub arn:${AWS::Partition}:s3:::${TestBucket}/test_folder_1/*
+
+          - Sid: AllowPublicAccessToAssetsFolder
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub arn:${AWS::Partition}:s3:::${TestBucket}/test_folder_2/*
+
+  TestBucketVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint # vpc endpoint to connect to s3 bucket
+    Properties:
+      VpcId: !Ref TestVPC
+      VpcEndpointType: Gateway
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      RouteTableIds:
+        - !Ref TestSubnet1RouteTable
+        - !Ref TestSubnet2RouteTable
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: s3:ListBucket
+            Effect: Allow
+            Principal: "*"
+            Resource: !Sub arn:${AWS::Partition}:s3:::${TestBucket}
+
+          - Action: s3:PutObject
+            Effect: Allow
+            Principal: "*"
+            Resource: !Sub arn:${AWS::Partition}:s3:::${TestBucket}/put_folder/*
+
+          - Action:
+              - s3:Get*
+              - s3:List*
+            Effect: Allow
+            Principal: "*"
+            Resource:
+              - !Sub arn:${AWS::Partition}:s3:::${TestApplicationRevisionBucket}/*
+              - !Sub arn:${AWS::Partition}:s3:::initial-artifacts/test-app/test-app.zip
+
+  TestACMCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: test.leavemanager.co.in
+      ValidationMethod: DNS
+
+  TestALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: test-alb-sg
+      VpcId: !Ref TestVPC
+      GroupDescription: security group for test-alb
+      SecurityGroupIngress:
+        - Description: allow https
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - Description: allow http
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - Description: allow all traffic
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  TestALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      Name: test-alb
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref TestALBSecurityGroup
+      Subnets:
+        - !Ref TestSubnet1
+        - !Ref TestSubnet2
+      Type: application
+
+  TestALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: test-alb-tg
+      Port: 8000
+      Protocol: HTTP
+      ProtocolVersion: HTTP1
+      VpcId: !Ref TestVPC
+      TargetType: instance
+      HealthCheckPort: 80
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 5
+
+  TestALBHHttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref TestALB
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref TestACMCertificate
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TestALBTargetGroup
+
+  TestALBHttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref TestALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: "redirect"
+          RedirectConfig:
+            Protocol: "HTTPS"
+            Port: 443
+            Host: "#{host}"
+            Path: "/#{path}"
+            Query: "#{query}"
+            StatusCode: "HTTP_301"
+
+  TestAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: test-alb-asg
+      MaxSize: 2
+      MinSize: 2
+      DesiredCapacity: 2
+      AvailabilityZones:
+        - !Select [0, !GetAZs ]
+        - !Select [1, !GetAZs ]
+      VPCZoneIdentifier:
+        - !Ref TestSubnet1
+        - !Ref TestSubnet2
+      LaunchTemplate:
+        LaunchTemplateId: !Ref TestLaunchTemplate
+        Version: !GetAtt TestLaunchTemplate.LatestVersionNumber
+      TargetGroupARNs:
+        - !Ref TestALBTargetGroup
+    DependsOn:
+      - TestVPCtoTestIGAttachment
+
+  TestEC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: test-instance-sg
+      VpcId: !Ref TestVPC
+      GroupDescription: security group for test-instance
+      SecurityGroupIngress:
+        - Description: allow http traffic on port 8000 from load balancer
+          IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          SourceSecurityGroupId: !Ref TestALBSecurityGroup
+        - Description: allow http traffic on port 80 from load balancer for health checks
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref TestALBSecurityGroup
+        - Description: allow ssh
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - Description: allow all traffic on port 8000 from load balancer
+          IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          DestinationSecurityGroupId: !Ref TestALBSecurityGroup
+        - Description: allow all other traffic
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  TestInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      InstanceProfileName: test-instance-profile
+      Roles:
+        - !Ref TestInstanceRole
+
+  TestInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: test-instance-role
+      Description: role for test-ec2 instance to access various resources
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: test-instance-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action: s3:ListBucket
+                Effect: Allow
+                Resource: !Sub arn:${AWS::Partition}:s3:::${TestBucket}
+
+              - Action: s3:PutObject
+                Effect: Allow
+                Resource: !Sub arn:${AWS::Partition}:s3:::${TestBucket}/put_folder/*
+
+              - Action:
+                  - s3:Get*
+                  - s3:List*
+                Effect: Allow
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${TestApplicationRevisionBucket}/*
+                  - !Sub arn:${AWS::Partition}:s3:::initial-artifacts/test-app/test-app.zip
+
+              - Action: codedeploy:*
+                Effect: Allow
+                Resource:
+                  - "*"
+
+  TestLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: test-launch-template
+      LaunchTemplateData:
+        ImageId: ami-04d5f4a3d35669df0
+        InstanceType: t2.micro
+        IamInstanceProfile:
+          Arn: !GetAtt TestInstanceProfile.Arn
+        KeyName: ami-test-kp
+        SecurityGroupIds:
+          - !Ref TestEC2SecurityGroup
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Value: Name
+                Key: test-instance
+        BlockDeviceMappings:
+          - DeviceName: /dev/sdh
+            Ebs:
+              VolumeSize: 8
+              VolumeType: gp2
+              DeleteOnTermination: true
+
+  TestCodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: test-app
+      ComputePlatform: Server
+      Tags:
+        - Key: Name
+          Value: test-app-codedeploy
+
+  TestCodeDeployDeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref TestCodeDeployApplication
+      DeploymentGroupName: test-app-deployment-group
+      DeploymentConfigName: CodeDeployDefault.OneAtATime
+      DeploymentStyle:
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+        DeploymentType: IN_PLACE
+      LoadBalancerInfo:
+        TargetGroupInfoList:
+          - Name: !GetAtt TestALBTargetGroup.TargetGroupName
+      AutoScalingGroups:
+        - !Ref TestAutoScalingGroup
+      Deployment:
+        Revision:
+          RevisionType: S3
+          S3Location:
+            Bucket: initial-artifacts
+            Key: test-app/test-app.zip
+            BundleType: zip
+      ServiceRoleArn: !GetAtt TestCodeDeploySerivceRole.Arn
+
+  TestApplicationRevisionBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: test-application-revision-bucket-88328
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+
+  TestCodeDeploySerivceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: codedeploy-service-role
+      Description: service role for codedeploy to access various other services
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codedeploy.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole
+
+  TestOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - "sts.amazonaws.com"
+      ThumbprintList:
+        - "6938FD4D98BAB03FAADB97B34396831E3780AEA1"
+
+  TestGithubActionsRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: test-app-github-actions-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated:
+                - !Ref TestOIDCProvider
+            Action: "sts:AssumeRoleWithWebIdentity"
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: repo:alvinlal/aws-codedeploy-tutorial:ref:refs/heads/master
+      Path: "/"
+      Policies:
+        - PolicyName: test-app-github-actions-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - codedeploy:CreateDeployment
+                  - codedeploy:GetDeploymentConfig
+                  - codedeploy:RegisterApplicationRevision
+                  - codedeploy:GetApplicationRevision
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${TestApplicationRevisionBucket}/*
+                  - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentgroup:${TestCodeDeployApplication}/${TestCodeDeployDeploymentGroup}
+                  - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:application:${TestCodeDeployApplication}
+                  - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentconfig:CodeDeployDefault.OneAtATime
