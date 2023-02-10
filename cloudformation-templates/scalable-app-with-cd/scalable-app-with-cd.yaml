@@ -11,6 +11,11 @@ Outputs:
   GithubActionsRole:
     Value: !GetAtt TestGithubActionsRole.Arn
     Description: The ARN of the role created for github actions
+  RDSHostname:
+    Description: Hostname of the RDS instance
+    Value: !GetAtt TestRDS.Endpoint.Address
+    Export:
+      Name: RDSHostname
 
 # Resources
 Resources:
@@ -127,6 +132,73 @@ Resources:
       RouteTableId: !Ref TestSubnet3RouteTable
       SubnetId: !Ref TestSubnet3
 
+  TestSubnet4RouteTable: # test-subnet-4-rt
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TestVPC
+      Tags:
+        - Key: Name
+          Value: test-subnet-4-rt
+
+  TestSubnet4:
+    Type: AWS::EC2::Subnet # test-subnet-3
+    Properties:
+      VpcId: !Ref TestVPC
+      AvailabilityZone: !Select [1, !GetAZs ]
+      CidrBlock: 10.0.4.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: test-subnet-4
+
+  TestSubnet4toTestSubnet4RT: # attaches test-subnet-4-rt to test-subnet-4
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestSubnet4RouteTable
+      SubnetId: !Ref TestSubnet4
+
+  TestRDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: subnet group for test-db
+      SubnetIds:
+        - !Ref TestSubnet3
+        - !Ref TestSubnet4
+
+  TestRDS:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Engine: mysql
+      EngineVersion: 8.0.32
+      AllocatedStorage: 20
+      AllowMajorVersionUpgrade: false
+      AvailabilityZone: !Select [0, !GetAZs ]
+      BackupRetentionPeriod: 7
+      DBInstanceClass: db.t3.micro
+      DBInstanceIdentifier: test-db
+      DBName: testdb
+      DBSubnetGroupName: !Ref TestRDSSubnetGroup
+      DeletionProtection: true
+      MasterUsername: admin
+      MasterUserPassword: D&*oBE63%kmthAr%w0Vp
+      MaxAllocatedStorage: 200
+      MultiAZ: false
+      VPCSecurityGroups:
+        - !Ref TestRDSSecurityGroup
+
+  TestRDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref TestVPC
+      GroupDescription: security group for rds to allow traffic from ec2
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref TestEC2SecurityGroup
+
   TestBucket:
     Type: AWS::S3::Bucket # test-bucket
     DeletionPolicy: Retain
@@ -240,6 +312,7 @@ Resources:
       HealthCheckPort: 80
       HealthCheckProtocol: HTTP
       HealthCheckIntervalSeconds: 5
+      HealthCheckTimeoutSeconds: 4
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 2
       TargetGroupAttributes:
@@ -318,11 +391,6 @@ Resources:
           ToPort: 22
           CidrIp: 0.0.0.0/0
       SecurityGroupEgress:
-        - Description: allow all traffic on port 8000 from load balancer
-          IpProtocol: tcp
-          FromPort: 8000
-          ToPort: 8000
-          DestinationSecurityGroupId: !Ref TestALBSecurityGroup
         - Description: allow all other traffic
           IpProtocol: -1
           CidrIp: 0.0.0.0/0
@@ -411,6 +479,8 @@ Resources:
 
   TestCodeDeployDeploymentGroup:
     Type: AWS::CodeDeploy::DeploymentGroup
+    DependsOn:
+      - TestRDS
     Properties:
       ApplicationName: !Ref TestCodeDeployApplication
       DeploymentGroupName: test-app-deployment-group
@@ -504,3 +574,12 @@ Resources:
                   - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentgroup:${TestCodeDeployApplication}/${TestCodeDeployDeploymentGroup}
                   - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:application:${TestCodeDeployApplication}
                   - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentconfig:CodeDeployDefault.OneAtATime
+# TODOS
+# replace alb with nlb and attach elastic ip
+# enable ssl for rds if in public subnet
+# set system maintenance time according to the region
+
+# SECURITY IMPROVEMENTS
+# deploy ec2 in private subnet
+# deploy a NAT gateway and access ec2 using ssm
+# move rds secrets to secrets manager
