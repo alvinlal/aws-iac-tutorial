@@ -1,0 +1,551 @@
+# To-do before creating stack
+# create ecr repository and push app images to ecr
+
+# To-do after creating stack
+# validate acm certificate using dns
+# set github secrets
+# copy task-definition json to task-definition.json file in root folder of app
+
+Outputs:
+  NLBDNSName:
+    Description: The DNS name of the created NLB.
+    Value: !GetAtt TestNLB.DNSName
+  IAMROLEGITHUB:
+    Description: The ARN of the role created for github actions
+    Value: !GetAtt TestGithubActionsRole.Arn
+  NLBElasticIp:
+    Description: Public Elastic ip attached to the NLB
+    Value: !GetAtt TestEIP.PublicIp
+
+#   RDSHostname:
+#     Description: Hostname of the RDS instance
+#     Value: !GetAtt TestRDS.Endpoint.Address
+#     Export:
+#       Name: RDSHostname
+
+Resources:
+  TestIG: # test-ig
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: test-ig
+
+  TestVPC: # test-vpc
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: test-vpc
+
+  TestVPCtoTestIGAttachment: # attaches test-ig to test-vpc
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref TestVPC
+      InternetGatewayId: !Ref TestIG
+
+  TestNATGatewayEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  TestNatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt TestNATGatewayEIP.AllocationId
+      SubnetId: !Ref TestSubnet5
+
+  TestSubnet1RouteTable: # test-subnet-1-rt
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TestVPC
+      Tags:
+        - Key: Name
+          Value: test-subnet-1-rt
+
+  TestSubnet1NatRoute:
+    Type: AWS::EC2::Route # test-subnet-1-rt route
+    Properties:
+      RouteTableId: !Ref TestSubnet1RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref TestNatGateway
+
+  TestSubnet1:
+    Type: AWS::EC2::Subnet # test-subnet-1
+    Properties:
+      VpcId: !Ref TestVPC
+      AvailabilityZone: !Select [0, !GetAZs ]
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: test-subnet-1
+
+  TestSubnet1toTestSubnet1RT: # attaches test-subnet-1-rt to test-subnet-1
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestSubnet1RouteTable
+      SubnetId: !Ref TestSubnet1
+
+  TestSubnet2RouteTable: # test-subnet-2-rt
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TestVPC
+      Tags:
+        - Key: Name
+          Value: test-subnet-2-rt
+
+  TestSubnet2NatRoute:
+    Type: AWS::EC2::Route # test-subnet-2-rt route
+    Properties:
+      RouteTableId: !Ref TestSubnet2RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref TestNatGateway
+
+  TestSubnet2:
+    Type: AWS::EC2::Subnet # test-subnet-2
+    Properties:
+      VpcId: !Ref TestVPC
+      AvailabilityZone: !Select [1, !GetAZs ]
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: test-subnet-2
+
+  TestSubnet2toTestSubnet2RT: # attaches test-subnet-2-rt to test-subnet-2
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestSubnet2RouteTable
+      SubnetId: !Ref TestSubnet2
+
+  TestSubnet3RouteTable: # test-subnet-3-rt
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TestVPC
+      Tags:
+        - Key: Name
+          Value: test-subnet-3-rt
+
+  TestSubnet3:
+    Type: AWS::EC2::Subnet # test-subnet-3
+    Properties:
+      VpcId: !Ref TestVPC
+      AvailabilityZone: !Select [0, !GetAZs ]
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: test-subnet-3
+
+  TestSubnet3toTestSubnet3RT: # attaches test-subnet-3-rt to test-subnet-3
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestSubnet3RouteTable
+      SubnetId: !Ref TestSubnet3
+
+  TestSubnet4RouteTable: # test-subnet-4-rt
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TestVPC
+      Tags:
+        - Key: Name
+          Value: test-subnet-4-rt
+
+  TestSubnet4:
+    Type: AWS::EC2::Subnet # test-subnet-4
+    Properties:
+      VpcId: !Ref TestVPC
+      AvailabilityZone: !Select [1, !GetAZs ]
+      CidrBlock: 10.0.4.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: test-subnet-4
+
+  TestSubnet4toTestSubnet4RT: # attaches test-subnet-4-rt to test-subnet-4
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestSubnet4RouteTable
+      SubnetId: !Ref TestSubnet4
+
+  TestSubnet5RouteTable: # test-subnet-5-rt
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TestVPC
+      Tags:
+        - Key: Name
+          Value: test-subnet-5-rt
+
+  TestSubnet5IGRoute:
+    Type: AWS::EC2::Route # test-subnet-5-rt route
+    Properties:
+      RouteTableId: !Ref TestSubnet5RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref TestIG
+
+  TestSubnet5:
+    Type: AWS::EC2::Subnet # test-subnet-5
+    Properties:
+      VpcId: !Ref TestVPC
+      AvailabilityZone: !Select [0, !GetAZs ]
+      CidrBlock: 10.0.5.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: test-subnet-5
+
+  TestSubnet5toTestSubnet5RT: # attaches test-subnet-5-rt to test-subnet-5
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestSubnet5RouteTable
+      SubnetId: !Ref TestSubnet5
+
+  TestSubnet6RouteTable: # test-subnet-6-rt
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TestVPC
+      Tags:
+        - Key: Name
+          Value: test-subnet-6-rt
+
+  TestSubnet6IGRoute:
+    Type: AWS::EC2::Route # test-subnet-6-rt route
+    Properties:
+      RouteTableId: !Ref TestSubnet6RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref TestIG
+
+  TestSubnet6:
+    Type: AWS::EC2::Subnet # test-subnet-6
+    Properties:
+      VpcId: !Ref TestVPC
+      AvailabilityZone: !Select [1, !GetAZs ]
+      CidrBlock: 10.0.6.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: test-subnet-6
+
+  TestSubnet6toTestSubnet6RT: # attaches test-subnet-6-rt to test-subnet-6
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestSubnet6RouteTable
+      SubnetId: !Ref TestSubnet6
+
+  TestACMCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: leavemanager.co.in
+      ValidationMethod: DNS
+
+  TestEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  TestNLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      Name: test-nlb
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+        - Key: load_balancing.cross_zone.enabled
+          Value: true
+      SubnetMappings:
+        - AllocationId: !GetAtt TestEIP.AllocationId
+          SubnetId: !Ref TestSubnet5
+        - SubnetId: !Ref TestSubnet6
+      Type: network
+
+  TestNLBTargetGroup1:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: test-app-tg-1
+      Port: 3000
+      Protocol: TCP
+      VpcId: !Ref TestVPC
+      TargetType: ip
+      HealthCheckPort: 3000
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 10
+      HealthCheckTimeoutSeconds: 4
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 5
+
+  TestNLBTargetGroup2:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: test-app-tg-2
+      Port: 3000
+      Protocol: TCP
+      VpcId: !Ref TestVPC
+      TargetType: ip
+      HealthCheckPort: 3000
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 10
+      HealthCheckTimeoutSeconds: 4
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 5
+
+  TestNLBTLSListener443:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref TestNLB
+      Port: 443
+      Protocol: TLS
+      Certificates:
+        - CertificateArn: !Ref TestACMCertificate
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TestNLBTargetGroup1
+
+  TestNLBTLSListener90:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref TestNLB
+      Port: 90
+      Protocol: TCP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TestNLBTargetGroup1
+
+  TestApp1TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: test-app-ecs-task-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: test-app-access-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:Get*
+                  - s3:List*
+                  - s3:Put*
+                  - s3:Delete*
+                Resource:
+                  - arn:aws:s3:::my-bucket # TODO:- create bucket and replace here using !Sub
+                  - arn:aws:s3:::my-bucket/*
+
+  TestCloudMapNameSpace:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Name: testapp.com
+      Vpc: !Ref TestVPC
+
+  TestServiceDiscoveryService:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: test-app-1
+      NamespaceId: !Ref TestCloudMapNameSpace
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 60
+
+  TestAppECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: test-app
+
+  TestApp1TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+        - Image: 732313143489.dkr.ecr.ap-south-1.amazonaws.com/test-app-1:1.0.0
+          Name: test-app-1
+          PortMappings:
+            - ContainerPort: 3000
+      Cpu: 1024
+      Memory: 2048
+      NetworkMode: awsvpc
+      TaskRoleArn: !GetAtt TestApp1TaskExecutionRole.Arn
+      ExecutionRoleArn: arn:aws:iam::732313143489:role/ecsTaskExecutionRole
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+
+  TestApp1ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for app-1 tasks
+      VpcId: !Ref TestVPC
+      SecurityGroupIngress: # TODO:- all from load balancer only
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1
+
+  TestApp1Service:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - TestNLB
+    Properties:
+      Cluster: !GetAtt TestAppECSCluster.Arn
+      ServiceName: test-app-1-service
+      SchedulingStrategy: REPLICA
+      DeploymentController:
+        Type: CODE_DEPLOY
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - !Ref TestSubnet1
+            - !Ref TestSubnet2
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !GetAtt TestApp1ServiceSecurityGroup.GroupId
+      LoadBalancers:
+        - ContainerName: test-app-1
+          ContainerPort: 3000
+          TargetGroupArn: !Ref TestNLBTargetGroup1
+      TaskDefinition: !Ref TestApp1TaskDefinition
+      ServiceRegistries:
+        - RegistryArn: !GetAtt TestServiceDiscoveryService.Arn
+
+  TestCodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: test-app-codedeploy
+      ComputePlatform: ECS
+
+  TestCodeDeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      DeploymentGroupName: test-app-dg
+      ApplicationName: !Ref TestCodeDeployApplication
+      ServiceRoleArn: arn:aws:iam::732313143489:role/aws-codedeploy-role-for-ecs # TODO:- create manually in this template itself
+      DeploymentConfigName: CodeDeployDefault.ECSAllAtOnce
+      AutoRollbackConfiguration:
+        Enabled: true
+        Events:
+          - DEPLOYMENT_FAILURE
+      DeploymentStyle:
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+        DeploymentType: BLUE_GREEN
+      BlueGreenDeploymentConfiguration:
+        DeploymentReadyOption:
+          ActionOnTimeout: CONTINUE_DEPLOYMENT
+        TerminateBlueInstancesOnDeploymentSuccess:
+          Action: TERMINATE
+          TerminationWaitTimeInMinutes: 15
+      ECSServices:
+        - ServiceName: !GetAtt TestApp1Service.Name
+          ClusterName: !Ref TestAppECSCluster
+      LoadBalancerInfo:
+        TargetGroupPairInfoList:
+          - TargetGroups:
+              - Name: !GetAtt TestNLBTargetGroup1.TargetGroupName
+              - Name: !GetAtt TestNLBTargetGroup2.TargetGroupName
+            ProdTrafficRoute:
+              ListenerArns:
+                - !Ref TestNLBTLSListener443
+            TestTrafficRoute:
+              ListenerArns:
+                - !Ref TestNLBTLSListener90
+
+  TestOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - "sts.amazonaws.com"
+      ThumbprintList:
+        - "6938FD4D98BAB03FAADB97B34396831E3780AEA1"
+
+  TestGithubActionsRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: test-app-github-actions-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated:
+                - !Ref TestOIDCProvider
+            Action: "sts:AssumeRoleWithWebIdentity"
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: repo:alvinlal/test-app-1:ref:refs/heads/master
+      Path: "/"
+      Policies:
+        - PolicyName: test-app-github-actions-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: GetAuthorizationToken
+                Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource:
+                  - "*"
+
+              - Sid: AllowPush
+                Effect: Allow
+                Action:
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:PutImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/test-app-1
+
+              - Sid: RegisterTaskDefinition
+                Effect: Allow
+                Action:
+                  - ecs:RegisterTaskDefinition
+                Resource:
+                  - "*"
+
+              - Sid: PassRolesInTaskDefinition
+                Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ecsTaskExecutionRole
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${TestApp1TaskExecutionRole}
+
+              - Sid: DeployService
+                Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - codedeploy:GetDeploymentGroup
+                  - codedeploy:CreateDeployment
+                  - codedeploy:GetDeployment
+                  - codedeploy:GetDeploymentConfig
+                  - codedeploy:RegisterApplicationRevision
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/${TestAppECSCluster}/${TestApp1Service.Name}
+                  - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentgroup:${TestCodeDeployApplication}/${TestCodeDeploymentGroup}
+                  - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentconfig:*
+                  - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:application:${TestCodeDeployApplication}
+# TODO's
+# Verify github role policy
+# Test CD
+# Setup auto-scalling
+# Setup dns for rds

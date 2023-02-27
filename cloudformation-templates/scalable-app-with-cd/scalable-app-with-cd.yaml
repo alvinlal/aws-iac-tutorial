@@ -449,7 +449,7 @@ Resources:
     Properties:
       LaunchTemplateName: test-launch-template
       LaunchTemplateData:
-        ImageId: ami-04d5f4a3d35669df0
+        ImageId: ami-05a4e34292460e09d
         InstanceType: t2.micro
         IamInstanceProfile:
           Arn: !GetAtt TestInstanceProfile.Arn
