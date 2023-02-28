@@ -17,12 +17,6 @@ Outputs:
     Description: Public Elastic ip attached to the NLB
     Value: !GetAtt TestEIP.PublicIp
 
-#   RDSHostname:
-#     Description: Hostname of the RDS instance
-#     Value: !GetAtt TestRDS.Endpoint.Address
-#     Export:
-#       Name: RDSHostname
-
 Resources:
   TestIG: # test-ig
     Type: AWS::EC2::InternetGateway
@@ -472,6 +466,29 @@ Resources:
       ThumbprintList:
         - "6938FD4D98BAB03FAADB97B34396831E3780AEA1"
 
+  TestApp1ScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      ResourceId: !Sub service/${TestAppECSCluster}/${TestApp1Service.Name}
+      ServiceNamespace: ecs
+      ScalableDimension: ecs:service:DesiredCount
+      MinCapacity: 1
+      RoleARN: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService
+      MaxCapacity: 5
+    DependsOn:
+      - TestApp1Service
+
+  TestApp1ScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: test-app-1-scaling-policy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref TestApp1ScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 75.0
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+
   TestGithubActionsRole:
     Type: "AWS::IAM::Role"
     Properties:
@@ -545,7 +562,5 @@ Resources:
                   - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentconfig:*
                   - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:application:${TestCodeDeployApplication}
 # TODO's
-# Verify github role policy
-# Test CD
 # Setup auto-scalling
 # Setup dns for rds
