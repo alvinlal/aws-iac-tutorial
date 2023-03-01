@@ -362,6 +362,13 @@ Resources:
     Properties:
       ClusterName: test-app
 
+  TestApp1LogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: test-app-1-logs
+
   TestApp1TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -370,8 +377,14 @@ Resources:
           Name: test-app-1
           PortMappings:
             - ContainerPort: 3000
-      Cpu: 1024
-      Memory: 2048
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Sub ${AWS::Region}
+              awslogs-stream-prefix: test-app-1-service
+              awslogs-group: !Ref TestApp1LogGroup
+      Cpu: 1024 # TODO:- change to 0.5
+      Memory: 2048 # TODO:- change to 1gb
       NetworkMode: awsvpc
       TaskRoleArn: !GetAtt TestApp1TaskExecutionRole.Arn
       ExecutionRoleArn: arn:aws:iam::732313143489:role/ecsTaskExecutionRole
@@ -485,7 +498,7 @@ Resources:
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref TestApp1ScalableTarget
       TargetTrackingScalingPolicyConfiguration:
-        TargetValue: 75.0
+        TargetValue: 10.0
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
 
