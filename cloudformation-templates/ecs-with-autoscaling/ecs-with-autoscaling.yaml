@@ -5,17 +5,28 @@
 # validate acm certificate using dns
 # set github secrets
 # copy task-definition json to task-definition.json file in root folder of app
+# create template to create a bastion host to access db
+# run migrations and seed on db
 
 Outputs:
   NLBDNSName:
     Description: The DNS name of the created NLB.
     Value: !GetAtt TestNLB.DNSName
-  IAMROLEGITHUB:
+  TESTAPP1IAMROLEGITHUB:
     Description: The ARN of the role created for github actions
-    Value: !GetAtt TestGithubActionsRole.Arn
-  NLBElasticIp:
-    Description: Public Elastic ip attached to the NLB
-    Value: !GetAtt TestEIP.PublicIp
+    Value: !GetAtt TestApp1GithubActionsRole.Arn
+  TESTAPP2IAMROLEGITHUB:
+    Description: The ARN of the role created for github actions
+    Value: !GetAtt TestApp2GithubActionsRole.Arn
+  TESTAPP2TASKROLE:
+    Description: The arn of the role used by test-app-1 ecs tasks
+    Value: !GetAtt TestApp1TaskExecutionRole.Arn
+  NLBElasticIp1:
+    Description: Public Elastic ip 1 attached to the NLB
+    Value: !GetAtt TestEIP1.PublicIp
+  NLBElasticIp2:
+    Description: Public Elastic ip 2 attached to the NLB
+    Value: !GetAtt TestEIP2.PublicIp
 
 Resources:
   TestIG: # test-ig
@@ -237,7 +248,12 @@ Resources:
       DomainName: leavemanager.co.in
       ValidationMethod: DNS
 
-  TestEIP:
+  TestEIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  TestEIP2:
     Type: AWS::EC2::EIP
     Properties:
       Domain: vpc
@@ -252,9 +268,10 @@ Resources:
         - Key: load_balancing.cross_zone.enabled
           Value: true
       SubnetMappings:
-        - AllocationId: !GetAtt TestEIP.AllocationId
+        - AllocationId: !GetAtt TestEIP1.AllocationId
           SubnetId: !Ref TestSubnet5
-        - SubnetId: !Ref TestSubnet6
+        - AllocationId: !GetAtt TestEIP2.AllocationId
+          SubnetId: !Ref TestSubnet6
       Type: network
 
   TestNLBTargetGroup1:
@@ -318,7 +335,7 @@ Resources:
   TestApp1TaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: test-app-ecs-task-role
+      RoleName: test-app-1-ecs-task-role
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -327,7 +344,7 @@ Resources:
               Service: ecs-tasks.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: test-app-access-policy
+        - PolicyName: test-app-1-access-policy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -347,10 +364,10 @@ Resources:
       Name: testapp.com
       Vpc: !Ref TestVPC
 
-  TestServiceDiscoveryService:
+  TestApp2ServiceDiscoveryService:
     Type: AWS::ServiceDiscovery::Service
     Properties:
-      Name: test-app-1
+      Name: test-app-2
       NamespaceId: !Ref TestCloudMapNameSpace
       DnsConfig:
         DnsRecords:
@@ -361,19 +378,22 @@ Resources:
     Type: AWS::ECS::Cluster
     Properties:
       ClusterName: test-app
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
 
-  TestApp1LogGroup:
+  TestAppLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      LogGroupName: test-app-1-logs
+      LogGroupName: test-app-logs
 
   TestApp1TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
       ContainerDefinitions:
-        - Image: 732313143489.dkr.ecr.ap-south-1.amazonaws.com/test-app-1:1.0.0
+        - Image: 732313143489.dkr.ecr.me-south-1.amazonaws.com/test-app-1:1.0.0
           Name: test-app-1
           PortMappings:
             - ContainerPort: 3000
@@ -382,12 +402,40 @@ Resources:
             Options:
               awslogs-region: !Sub ${AWS::Region}
               awslogs-stream-prefix: test-app-1-service
-              awslogs-group: !Ref TestApp1LogGroup
-      Cpu: 1024 # TODO:- change to 0.5
-      Memory: 2048 # TODO:- change to 1gb
+              awslogs-group: !Ref TestAppLogGroup
+      Family: test-app-1-task-definition
+      Cpu: 512
+      Memory: 1024
       NetworkMode: awsvpc
       TaskRoleArn: !GetAtt TestApp1TaskExecutionRole.Arn
       ExecutionRoleArn: arn:aws:iam::732313143489:role/ecsTaskExecutionRole
+      RequiresCompatibilities:
+        - FARGATE
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+
+  TestApp2TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+        - Image: 732313143489.dkr.ecr.me-south-1.amazonaws.com/test-app-2:1.0.0
+          Name: test-app-2
+          PortMappings:
+            - ContainerPort: 3000
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Sub ${AWS::Region}
+              awslogs-stream-prefix: test-app-2-service
+              awslogs-group: !Ref TestAppLogGroup
+      Family: test-app-2-task-definition
+      Cpu: 512
+      Memory: 1024
+      NetworkMode: awsvpc
+      ExecutionRoleArn: arn:aws:iam::732313143489:role/ecsTaskExecutionRole
+      RequiresCompatibilities:
+        - FARGATE
       RuntimePlatform:
         CpuArchitecture: X86_64
         OperatingSystemFamily: LINUX
@@ -395,11 +443,24 @@ Resources:
   TestApp1ServiceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Security group for app-1 tasks
+      GroupDescription: Security group for test-app-1 tasks
       VpcId: !Ref TestVPC
-      SecurityGroupIngress: # TODO:- all from load balancer only
+      SecurityGroupIngress:
         - CidrIp: 0.0.0.0/0
-          IpProtocol: -1
+          IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+
+  TestApp2ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for test-app-2 tasks
+      VpcId: !Ref TestVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref TestApp1ServiceSecurityGroup
 
   TestApp1Service:
     Type: AWS::ECS::Service
@@ -426,21 +487,56 @@ Resources:
           ContainerPort: 3000
           TargetGroupArn: !Ref TestNLBTargetGroup1
       TaskDefinition: !Ref TestApp1TaskDefinition
-      ServiceRegistries:
-        - RegistryArn: !GetAtt TestServiceDiscoveryService.Arn
 
-  TestCodeDeployApplication:
+  TestApp2Service:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - TestNLB
+    Properties:
+      Cluster: !GetAtt TestAppECSCluster.Arn
+      ServiceName: test-app-2-service
+      SchedulingStrategy: REPLICA
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - !Ref TestSubnet1
+            - !Ref TestSubnet2
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !GetAtt TestApp2ServiceSecurityGroup.GroupId
+      TaskDefinition: !Ref TestApp2TaskDefinition
+      ServiceRegistries:
+        - RegistryArn: !GetAtt TestApp2ServiceDiscoveryService.Arn
+
+  TestApp1CodeDeployApplication:
     Type: AWS::CodeDeploy::Application
     Properties:
-      ApplicationName: test-app-codedeploy
+      ApplicationName: test-app-1-codedeploy
       ComputePlatform: ECS
 
-  TestCodeDeploymentGroup:
+  TestApp1CodeDeployServiceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: codedeploy-service-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
+
+  TestApp1CodeDeploymentGroup:
     Type: AWS::CodeDeploy::DeploymentGroup
     Properties:
-      DeploymentGroupName: test-app-dg
-      ApplicationName: !Ref TestCodeDeployApplication
-      ServiceRoleArn: arn:aws:iam::732313143489:role/aws-codedeploy-role-for-ecs # TODO:- create manually in this template itself
+      DeploymentGroupName: test-app-1-dg
+      ApplicationName: !Ref TestApp1CodeDeployApplication
+      ServiceRoleArn: !GetAtt TestApp1CodeDeployServiceRole.Arn
       DeploymentConfigName: CodeDeployDefault.ECSAllAtOnce
       AutoRollbackConfiguration:
         Enabled: true
@@ -470,15 +566,6 @@ Resources:
               ListenerArns:
                 - !Ref TestNLBTLSListener90
 
-  TestOIDCProvider:
-    Type: AWS::IAM::OIDCProvider
-    Properties:
-      Url: https://token.actions.githubusercontent.com
-      ClientIdList:
-        - "sts.amazonaws.com"
-      ThumbprintList:
-        - "6938FD4D98BAB03FAADB97B34396831E3780AEA1"
-
   TestApp1ScalableTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
@@ -502,10 +589,42 @@ Resources:
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
 
-  TestGithubActionsRole:
+  TestApp2ScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      ResourceId: !Sub service/${TestAppECSCluster}/${TestApp2Service.Name}
+      ServiceNamespace: ecs
+      ScalableDimension: ecs:service:DesiredCount
+      MinCapacity: 1
+      RoleARN: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService
+      MaxCapacity: 5
+    DependsOn:
+      - TestApp2Service
+
+  TestApp2ScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: test-app-2-scaling-policy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref TestApp2ScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 10.0
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+
+  TestOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - "sts.amazonaws.com"
+      ThumbprintList:
+        - "6938FD4D98BAB03FAADB97B34396831E3780AEA1"
+
+  TestApp1GithubActionsRole:
     Type: "AWS::IAM::Role"
     Properties:
-      RoleName: test-app-github-actions-role
+      RoleName: test-app-1-github-actions-role
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -521,7 +640,7 @@ Resources:
                 token.actions.githubusercontent.com:sub: repo:alvinlal/test-app-1:ref:refs/heads/master
       Path: "/"
       Policies:
-        - PolicyName: test-app-github-actions-policy
+        - PolicyName: test-app-1-github-actions-policy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -571,9 +690,74 @@ Resources:
                   - codedeploy:RegisterApplicationRevision
                 Resource:
                   - !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/${TestAppECSCluster}/${TestApp1Service.Name}
-                  - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentgroup:${TestCodeDeployApplication}/${TestCodeDeploymentGroup}
+                  - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentgroup:${TestApp1CodeDeployApplication}/${TestApp1CodeDeploymentGroup}
                   - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentconfig:*
-                  - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:application:${TestCodeDeployApplication}
+                  - !Sub arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:application:${TestApp1CodeDeployApplication}
+
+  TestApp2GithubActionsRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: test-app-2-github-actions-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated:
+                - !Ref TestOIDCProvider
+            Action: "sts:AssumeRoleWithWebIdentity"
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: repo:alvinlal/test-app-2:ref:refs/heads/master
+      Path: "/"
+      Policies:
+        - PolicyName: test-app-2-github-actions-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: GetAuthorizationToken
+                Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource:
+                  - "*"
+
+              - Sid: AllowPush
+                Effect: Allow
+                Action:
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:PutImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/test-app-2
+
+              - Sid: RegisterTaskDefinition
+                Effect: Allow
+                Action:
+                  - ecs:RegisterTaskDefinition
+                Resource:
+                  - "*"
+
+              - Sid: PassRolesInTaskDefinition
+                Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ecsTaskExecutionRole
+
+              - Sid: DeployService
+                Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:UpdateService
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/${TestAppECSCluster}/${TestApp2Service.Name}
 # TODO's
-# Setup auto-scalling
 # Setup dns for rds
+# Check if nat gateway can be removed
