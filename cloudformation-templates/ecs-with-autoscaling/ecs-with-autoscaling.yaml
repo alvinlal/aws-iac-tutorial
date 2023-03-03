@@ -1,5 +1,5 @@
 # To-do before creating stack
-# create ecr repository and push app images to ecr
+# create ecr repository and push app images to ecr for all apps
 
 # To-do after creating stack
 # validate acm certificate using dns
@@ -27,6 +27,9 @@ Outputs:
   NLBElasticIp2:
     Description: Public Elastic ip 2 attached to the NLB
     Value: !GetAtt TestEIP2.PublicIp
+  RDSHostname:
+    Description: Hostname of the RDS instance
+    Value: !GetAtt TestRDS.Endpoint.Address
 
 Resources:
   TestIG: # test-ig
@@ -348,15 +351,13 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Effect: Allow
-                Action:
-                  - s3:Get*
-                  - s3:List*
-                  - s3:Put*
-                  - s3:Delete*
-                Resource:
-                  - arn:aws:s3:::my-bucket # TODO:- create bucket and replace here using !Sub
-                  - arn:aws:s3:::my-bucket/*
+              - Action: s3:ListBucket
+                Effect: Allow
+                Resource: !Sub arn:${AWS::Partition}:s3:::${TestBucket}
+
+              - Action: s3:PutObject
+                Effect: Allow
+                Resource: !Sub arn:${AWS::Partition}:s3:::${TestBucket}/put_folder/*
 
   TestCloudMapNameSpace:
     Type: AWS::ServiceDiscovery::PrivateDnsNamespace
@@ -373,6 +374,24 @@ Resources:
         DnsRecords:
           - Type: A
             TTL: 60
+
+  TestRDSServiceDiscoveryService:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: test-app-rds
+      NamespaceId: !Ref TestCloudMapNameSpace
+      DnsConfig:
+        DnsRecords:
+          - Type: CNAME
+            TTL: 604800
+        RoutingPolicy: WEIGHTED
+
+  TestRDSServiceDiscoveryInstance:
+    Type: AWS::ServiceDiscovery::Instance
+    Properties:
+      ServiceId: !Ref TestRDSServiceDiscoveryService
+      InstanceAttributes:
+        AWS_INSTANCE_CNAME: !GetAtt TestRDS.Endpoint.Address
 
   TestAppECSCluster:
     Type: AWS::ECS::Cluster
@@ -612,6 +631,72 @@ Resources:
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
 
+  TestRDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: subnet group for test-db
+      SubnetIds:
+        - !Ref TestSubnet3
+        - !Ref TestSubnet4
+
+  TestRDS:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Engine: mysql
+      EngineVersion: 8.0.32
+      AllocatedStorage: 20
+      AllowMajorVersionUpgrade: false
+      AvailabilityZone: !Select [0, !GetAZs ]
+      BackupRetentionPeriod: 7
+      DBInstanceClass: db.t3.micro
+      DBInstanceIdentifier: test-db
+      DBName: testdb
+      DBSubnetGroupName: !Ref TestRDSSubnetGroup
+      DeletionProtection: true
+      MasterUsername: admin
+      MasterUserPassword: D&*oBE63%kmthAr%w0Vp
+      MaxAllocatedStorage: 200
+      MultiAZ: false
+      VPCSecurityGroups:
+        - !Ref TestRDSSecurityGroup
+
+  TestRDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref TestVPC
+      GroupDescription: security group for rds to allow traffic from test-app-1-service
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref TestApp1ServiceSecurityGroup
+  # TODO:- add rule for bastion hosts also
+
+  TestBucket:
+    Type: AWS::S3::Bucket # test-bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: test-bucket-88328
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+
+  TestBucketPolicy:
+    Type: AWS::S3::BucketPolicy # test bucket policy
+    Properties:
+      Bucket: !Ref TestBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AllowPublicAccessToTestFolder
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub arn:${AWS::Partition}:s3:::${TestBucket}/test_folder_1/*
+
   TestOIDCProvider:
     Type: AWS::IAM::OIDCProvider
     Properties:
@@ -758,6 +843,3 @@ Resources:
                   - ecs:UpdateService
                 Resource:
                   - !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/${TestAppECSCluster}/${TestApp2Service.Name}
-# TODO's
-# Setup dns for rds
-# Check if nat gateway can be removed
